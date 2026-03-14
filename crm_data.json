@@ -1,0 +1,107 @@
+{
+  "leads": [
+    {
+      "id": 1,
+      "name": "Rahul Sharma",
+      "email": "rahul@techcorp.com",
+      "company": "TechCorp",
+      "phone": "9876543210",
+      "status": "New",
+      "notes": "Interested in logistics demo",
+      "created_at": "2026-02-01",
+      "follow_up_date": "2026-02-04"
+    },
+    {
+      "id": 2,
+      "name": "Priya Mehta",
+      "email": "priya@logix.in",
+      "company": "LogiX India",
+      "phone": "9876543211",
+      "status": "Qualified",
+      "notes": "Sent brochure, awaiting reply",
+      "created_at": "2026-02-05",
+      "follow_up_date": "2026-02-08"
+    },
+    {
+      "id": 3,
+      "name": "Arjun Verma",
+      "email": "arjun@supplyco.com",
+      "company": "SupplyCo",
+      "phone": "9876543212",
+      "status": "Qualified",
+      "notes": "Budget approved, needs proposal",
+      "created_at": "2026-02-10",
+      "follow_up_date": "2026-02-13"
+    },
+    {
+      "id": 4,
+      "name": "Sneha Patel",
+      "email": "sneha@fastship.com",
+      "company": "FastShip",
+      "phone": "9876543213",
+      "status": "Proposal",
+      "notes": "Proposal sent, follow up Friday",
+      "created_at": "2026-02-15",
+      "follow_up_date": "2026-02-18"
+    },
+    {
+      "id": 5,
+      "name": "Vikram Singh",
+      "email": "vikram@deliverfast.com",
+      "company": "DeliverFast",
+      "phone": "9876543214",
+      "status": "Closed",
+      "notes": "Deal closed! \u20b92.4L contract",
+      "created_at": "2026-02-20",
+      "follow_up_date": "2026-02-23"
+    },
+    {
+      "id": 6,
+      "name": "Anita Roy",
+      "email": "anita@quickmove.com",
+      "company": "QuickMove",
+      "phone": "9876543215",
+      "status": "Lost",
+      "notes": "Went with competitor",
+      "created_at": "2026-02-22",
+      "follow_up_date": "2026-02-25"
+    }
+  ],
+  "interactions": [
+    {
+      "id": 1,
+      "lead_id": 1,
+      "type": "Call",
+      "summary": "Initial discovery call, very interested",
+      "date": "2026-02-02"
+    },
+    {
+      "id": 2,
+      "lead_id": 2,
+      "type": "Email",
+      "summary": "Sent product brochure and pricing",
+      "date": "2026-02-06"
+    },
+    {
+      "id": 3,
+      "lead_id": 3,
+      "type": "Demo",
+      "summary": "Live demo completed, loved the UI",
+      "date": "2026-02-11"
+    },
+    {
+      "id": 4,
+      "lead_id": 4,
+      "type": "Meeting",
+      "summary": "In-person meeting, proposal discussed",
+      "date": "2026-02-16"
+    },
+    {
+      "id": 5,
+      "lead_id": 5,
+      "type": "Call",
+      "summary": "Final negotiation, deal signed",
+      "date": "2026-02-21"
+    }
+  ]
+}

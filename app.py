@@ -1,0 +1,681 @@
+from flask import Flask, render_template_string, request, jsonify
+import json, os
+from datetime import datetime, timedelta
+
+app = Flask(__name__)
+DATA_FILE = "crm_data.json"
+
+# ── Data Helpers ──────────────────────────────────────────────────────────────
+def load():
+    if os.path.exists(DATA_FILE):
+        with open(DATA_FILE) as f:
+            return json.load(f)
+    return {"leads": [], "interactions": []}
+
+def save(data):
+    with open(DATA_FILE, "w") as f:
+        json.dump(data, f, indent=2)
+
+def seed():
+    data = load()
+    if not data["leads"]:
+        samples = [
+            {"id":1,"name":"Rahul Sharma","email":"rahul@techcorp.com","company":"TechCorp","phone":"9876543210","status":"New","notes":"Interested in logistics demo","created_at":"2026-02-01","follow_up_date":"2026-02-04"},
+            {"id":2,"name":"Priya Mehta","email":"priya@logix.in","company":"LogiX India","phone":"9876543211","status":"Contacted","notes":"Sent brochure, awaiting reply","created_at":"2026-02-05","follow_up_date":"2026-02-08"},
+            {"id":3,"name":"Arjun Verma","email":"arjun@supplyco.com","company":"SupplyCo","phone":"9876543212","status":"Qualified","notes":"Budget approved, needs proposal","created_at":"2026-02-10","follow_up_date":"2026-02-13"},
+            {"id":4,"name":"Sneha Patel","email":"sneha@fastship.com","company":"FastShip","phone":"9876543213","status":"Proposal","notes":"Proposal sent, follow up Friday","created_at":"2026-02-15","follow_up_date":"2026-02-18"},
+            {"id":5,"name":"Vikram Singh","email":"vikram@deliverfast.com","company":"DeliverFast","phone":"9876543214","status":"Closed","notes":"Deal closed! ₹2.4L contract","created_at":"2026-02-20","follow_up_date":"2026-02-23"},
+            {"id":6,"name":"Anita Roy","email":"anita@quickmove.com","company":"QuickMove","phone":"9876543215","status":"Lost","notes":"Went with competitor","created_at":"2026-02-22","follow_up_date":"2026-02-25"},
+        ]
+        data["leads"] = samples
+        data["interactions"] = [
+            {"id":1,"lead_id":1,"type":"Call","summary":"Initial discovery call, very interested","date":"2026-02-02"},
+            {"id":2,"lead_id":2,"type":"Email","summary":"Sent product brochure and pricing","date":"2026-02-06"},
+            {"id":3,"lead_id":3,"type":"Demo","summary":"Live demo completed, loved the UI","date":"2026-02-11"},
+            {"id":4,"lead_id":4,"type":"Meeting","summary":"In-person meeting, proposal discussed","date":"2026-02-16"},
+            {"id":5,"lead_id":5,"type":"Call","summary":"Final negotiation, deal signed","date":"2026-02-21"},
+        ]
+        save(data)
+
+seed()
+
+# ── API Routes ────────────────────────────────────────────────────────────────
+@app.route("/api/leads", methods=["GET"])
+def get_leads():
+    data = load()
+    return jsonify(data["leads"])
+
+@app.route("/api/leads", methods=["POST"])
+def add_lead():
+    data = load()
+    body = request.json
+    lead = {
+        "id": (max([l["id"] for l in data["leads"]], default=0) + 1),
+        "name": body["name"],
+        "email": body["email"],
+        "company": body["company"],
+        "phone": body["phone"],
+        "status": body.get("status", "New"),
+        "notes": body.get("notes", ""),
+        "created_at": datetime.now().strftime("%Y-%m-%d"),
+        "follow_up_date": (datetime.now() + timedelta(days=3)).strftime("%Y-%m-%d")
+    }
+    data["leads"].append(lead)
+    save(data)
+    return jsonify(lead), 201
+
+@app.route("/api/leads/<int:lid>", methods=["PUT"])
+def update_lead(lid):
+    data = load()
+    body = request.json
+    for lead in data["leads"]:
+        if lead["id"] == lid:
+            lead.update({k: v for k, v in body.items() if k != "id"})
+            save(data)
+            return jsonify(lead)
+    return jsonify({"error": "Not found"}), 404
+
+@app.route("/api/leads/<int:lid>", methods=["DELETE"])
+def delete_lead(lid):
+    data = load()
+    data["leads"] = [l for l in data["leads"] if l["id"] != lid]
+    save(data)
+    return jsonify({"ok": True})
+
+@app.route("/api/interactions", methods=["GET"])
+def get_interactions():
+    data = load()
+    lid = request.args.get("lead_id", type=int)
+    interactions = data["interactions"]
+    if lid:
+        interactions = [i for i in interactions if i["lead_id"] == lid]
+    return jsonify(interactions)
+
+@app.route("/api/interactions", methods=["POST"])
+def add_interaction():
+    data = load()
+    body = request.json
+    interaction = {
+        "id": (max([i["id"] for i in data["interactions"]], default=0) + 1),
+        "lead_id": body["lead_id"],
+        "type": body["type"],
+        "summary": body["summary"],
+        "date": datetime.now().strftime("%Y-%m-%d")
+    }
+    data["interactions"].append(interaction)
+    save(data)
+    return jsonify(interaction), 201
+
+@app.route("/api/analytics")
+def analytics():
+    data = load()
+    leads = data["leads"]
+    total = len(leads)
+    status_counts = {}
+    for l in leads:
+        status_counts[l["status"]] = status_counts.get(l["status"], 0) + 1
+    closed = status_counts.get("Closed", 0)
+    return jsonify({
+        "total": total,
+        "interactions": len(data["interactions"]),
+        "status_counts": status_counts,
+        "conversion_rate": round((closed / total * 100), 1) if total else 0
+    })
+
+#── Frontend ──────────────────────────────────────────────────────────────────
+HTML = """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CRM · Chirag Singla</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #080c14;
+  --surface: #0e1420;
+  --surface2: #151d2e;
+  --border: #1e2d45;
+  --accent: #3b82f6;
+  --accent2: #06b6d4;
+  --green: #22c55e;
+  --yellow: #f59e0b;
+  --red: #ef4444;
+  --purple: #a855f7;
+  --text: #e2e8f0;
+  --muted: #64748b;
+  --font-head: 'Syne', sans-serif;
+  --font-body: 'DM Sans', sans-serif;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body { background:var(--bg); color:var(--text); font-family:var(--font-body); min-height:100vh; }
+
+/* ── Sidebar ── */
+.sidebar {
+  position:fixed; left:0; top:0; width:220px; height:100vh;
+  background:var(--surface); border-right:1px solid var(--border);
+  display:flex; flex-direction:column; padding:24px 0; z-index:100;
+}
+.logo {
+  padding:0 20px 24px; border-bottom:1px solid var(--border);
+  font-family:var(--font-head); font-size:17px; font-weight:800;
+  color:var(--accent); letter-spacing:-0.5px;
+}
+.logo span { color:var(--text); font-weight:400; font-size:11px; display:block; margin-top:2px; }
+.nav { padding:16px 12px; flex:1; }
+.nav-item {
+  display:flex; align-items:center; gap:10px; padding:10px 12px;
+  border-radius:8px; cursor:pointer; font-size:13px; color:var(--muted);
+  transition:all .2s; margin-bottom:4px; font-weight:500;
+}
+.nav-item:hover, .nav-item.active { background:var(--surface2); color:var(--text); }
+.nav-item.active { border-left:2px solid var(--accent); color:var(--accent); }
+.nav-icon { font-size:16px; }
+.sidebar-footer {
+  padding:16px 20px; border-top:1px solid var(--border);
+  font-size:11px; color:var(--muted);
+}
+
+/* ── Main ── */
+.main { margin-left:220px; padding:32px; min-height:100vh; }
+.page { display:none; }
+.page.active { display:block; animation:fadeIn .3s ease; }
+@keyframes fadeIn { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
+
+.page-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:28px; }
+.page-title { font-family:var(--font-head); font-size:26px; font-weight:800; }
+.page-sub { font-size:13px; color:var(--muted); margin-top:3px; }
+
+/* ── KPI Cards ── */
+.kpi-row { display:grid; grid-template-columns:repeat(4,1fr); gap:16px; margin-bottom:28px; }
+.kpi {
+  background:var(--surface); border:1px solid var(--border); border-radius:12px;
+  padding:20px; position:relative; overflow:hidden;
+}
+.kpi::before {
+  content:''; position:absolute; top:0; left:0; right:0; height:2px;
+  background:linear-gradient(90deg,var(--accent),var(--accent2));
+}
+.kpi-val { font-family:var(--font-head); font-size:30px; font-weight:800; color:var(--accent); }
+.kpi-label { font-size:12px; color:var(--muted); margin-top:4px; }
+.kpi-trend { font-size:11px; color:var(--green); margin-top:6px; }
+
+/* ── Table ── */
+.card { background:var(--surface); border:1px solid var(--border); border-radius:12px; overflow:hidden; }
+.card-head { padding:16px 20px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; }
+.card-head h3 { font-family:var(--font-head); font-size:14px; font-weight:700; }
+table { width:100%; border-collapse:collapse; }
+th { padding:12px 16px; text-align:left; font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.5px; border-bottom:1px solid var(--border); font-weight:500; }
+td { padding:13px 16px; font-size:13px; border-bottom:1px solid var(--border); }
+tr:last-child td { border-bottom:none; }
+tr:hover td { background:rgba(59,130,246,.04); }
+
+/* ── Status Badge ── */
+.badge {
+  display:inline-block; padding:3px 10px; border-radius:20px;
+  font-size:11px; font-weight:600; letter-spacing:.3px;
+}
+.badge-New { background:#1e3a5f22; color:#60a5fa; border:1px solid #1e3a5f; }
+.badge-Contacted { background:#7c3aed22; color:#a78bfa; border:1px solid #4c1d9544; }
+.badge-Qualified { background:#065f4622; color:#34d399; border:1px solid #065f4644; }
+.badge-Proposal { background:#92400e22; color:#fbbf24; border:1px solid #92400e44; }
+.badge-Closed { background:#14532d22; color:#4ade80; border:1px solid #14532d44; }
+.badge-Lost { background:#7f1d1d22; color:#f87171; border:1px solid #7f1d1d44; }
+
+/* ── Buttons ── */
+.btn {
+  padding:9px 18px; border-radius:8px; border:none; cursor:pointer;
+  font-family:var(--font-body); font-size:13px; font-weight:500;
+  transition:all .2s; display:inline-flex; align-items:center; gap:6px;
+}
+.btn-primary { background:var(--accent); color:#fff; }
+.btn-primary:hover { background:#2563eb; transform:translateY(-1px); }
+.btn-ghost { background:var(--surface2); color:var(--text); border:1px solid var(--border); }
+.btn-ghost:hover { border-color:var(--accent); color:var(--accent); }
+.btn-sm { padding:5px 12px; font-size:12px; }
+.btn-danger { background:#7f1d1d33; color:#f87171; border:1px solid #7f1d1d55; }
+.btn-danger:hover { background:#ef4444; color:#fff; }
+
+/* ── Modal ── */
+.overlay { display:none; position:fixed; inset:0; background:#00000088; z-index:200; backdrop-filter:blur(4px); }
+.overlay.open { display:flex; align-items:center; justify-content:center; }
+.modal {
+  background:var(--surface); border:1px solid var(--border); border-radius:16px;
+  padding:28px; width:480px; max-width:95vw;
+  animation:modalIn .25s ease;
+}
+@keyframes modalIn { from{opacity:0;transform:scale(.95)} to{opacity:1;transform:scale(1)} }
+.modal h2 { font-family:var(--font-head); font-size:18px; font-weight:800; margin-bottom:20px; }
+.form-group { margin-bottom:16px; }
+.form-group label { display:block; font-size:12px; color:var(--muted); margin-bottom:6px; font-weight:500; }
+.form-group input, .form-group select, .form-group textarea {
+  width:100%; padding:10px 14px; background:var(--surface2);
+  border:1px solid var(--border); border-radius:8px;
+  color:var(--text); font-family:var(--font-body); font-size:13px;
+  transition:border .2s; outline:none;
+}
+.form-group input:focus, .form-group select:focus, .form-group textarea:focus {
+  border-color:var(--accent);
+}
+.form-group select option { background:var(--surface2); }
+.form-row { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+.modal-footer { display:flex; gap:10px; justify-content:flex-end; margin-top:20px; }
+
+/* ── Search & Filter ── */
+.toolbar { display:flex; gap:10px; margin-bottom:20px; }
+.search-box {
+  flex:1; padding:9px 14px; background:var(--surface); border:1px solid var(--border);
+  border-radius:8px; color:var(--text); font-family:var(--font-body); font-size:13px; outline:none;
+}
+.search-box:focus { border-color:var(--accent); }
+.filter-select {
+  padding:9px 14px; background:var(--surface); border:1px solid var(--border);
+  border-radius:8px; color:var(--text); font-family:var(--font-body); font-size:13px; outline:none;
+}
+
+/* ── Analytics ── */
+.analytics-grid { display:grid; grid-template-columns:1fr 1fr; gap:20px; margin-top:20px; }
+.pipeline-bar { margin-bottom:12px; }
+.pipeline-label { display:flex; justify-content:space-between; font-size:12px; margin-bottom:5px; }
+.pipeline-label span:first-child { color:var(--muted); }
+.bar-track { background:var(--surface2); border-radius:4px; height:8px; overflow:hidden; }
+.bar-fill { height:100%; border-radius:4px; transition:width .8s ease; }
+
+/* ── Toast ── */
+.toast {
+  position:fixed; bottom:24px; right:24px; background:var(--green);
+  color:#fff; padding:12px 20px; border-radius:10px; font-size:13px;
+  font-weight:500; z-index:999; transform:translateY(80px); opacity:0;
+  transition:all .3s; pointer-events:none;
+}
+.toast.show { transform:translateY(0); opacity:1; }
+
+/* ── Interactions panel ── */
+.interactions-list { padding:16px 20px; max-height:300px; overflow-y:auto; }
+.interaction-item {
+  display:flex; gap:12px; padding:10px 0; border-bottom:1px solid var(--border);
+}
+.interaction-item:last-child { border-bottom:none; }
+.interaction-dot {
+  width:8px; height:8px; border-radius:50%; background:var(--accent);
+  margin-top:5px; flex-shrink:0;
+}
+.interaction-meta { font-size:11px; color:var(--muted); margin-top:3px; }
+.empty-state { text-align:center; padding:40px; color:var(--muted); font-size:13px; }
+</style>
+</head>
+<body>
+
+<!-- Sidebar -->
+<div class="sidebar">
+  <div class="logo">CRM Pro <span>by Chirag Singla</span></div>
+  <nav class="nav">
+    <div class="nav-item active" onclick="showPage('dashboard')">
+      <span class="nav-icon">📊</span> Dashboard
+    </div>
+    <div class="nav-item" onclick="showPage('leads')">
+      <span class="nav-icon">👥</span> Leads
+    </div>
+    <div class="nav-item" onclick="showPage('interactions')">
+      <span class="nav-icon">💬</span> Interactions
+    </div>
+    <div class="nav-item" onclick="showPage('analytics')">
+      <span class="nav-icon">📈</span> Analytics
+    </div>
+  </nav>
+  <div class="sidebar-footer">Shipsy Presales · 2026</div>
+</div>
+
+<!-- Main Content -->
+<div class="main">
+
+  <!-- Dashboard -->
+  <div class="page active" id="page-dashboard">
+    <div class="page-header">
+      <div>
+        <div class="page-title">Dashboard</div>
+        <div class="page-sub">Welcome back, Chirag 👋</div>
+      </div>
+    </div>
+    <div class="kpi-row" id="kpi-row">
+      <div class="kpi"><div class="kpi-val" id="k-total">—</div><div class="kpi-label">Total Leads</div><div class="kpi-trend">↑ Active pipeline</div></div>
+      <div class="kpi"><div class="kpi-val" id="k-closed">—</div><div class="kpi-label">Deals Closed</div><div class="kpi-trend">↑ This month</div></div>
+      <div class="kpi"><div class="kpi-val" id="k-rate">—</div><div class="kpi-label">Conversion Rate</div><div class="kpi-trend">↑ vs last month</div></div>
+      <div class="kpi"><div class="kpi-val" id="k-interactions">—</div><div class="kpi-label">Interactions Logged</div><div class="kpi-trend">↑ All time</div></div>
+    </div>
+    <div class="card">
+      <div class="card-head"><h3>Recent Leads</h3><button class="btn btn-ghost btn-sm" onclick="showPage('leads')">View All →</button></div>
+      <table><thead><tr><th>Name</th><th>Company</th><th>Status</th><th>Follow-up</th></tr></thead>
+      <tbody id="dash-leads"></tbody></table>
+    </div>
+  </div>
+
+  <!-- Leads -->
+  <div class="page" id="page-leads">
+    <div class="page-header">
+      <div><div class="page-title">Leads</div><div class="page-sub">Manage your sales pipeline</div></div>
+      <button class="btn btn-primary" onclick="openAddLead()">+ Add Lead</button>
+    </div>
+    <div class="toolbar">
+      <input class="search-box" placeholder="🔍  Search by name, company..." oninput="filterLeads()" id="lead-search">
+      <select class="filter-select" onchange="filterLeads()" id="status-filter">
+        <option value="">All Status</option>
+        <option>New</option><option>Contacted</option><option>Qualified</option>
+        <option>Proposal</option><option>Closed</option><option>Lost</option>
+      </select>
+    </div>
+    <div class="card">
+      <table><thead><tr><th>Name</th><th>Company</th><th>Phone</th><th>Status</th><th>Follow-up</th><th>Actions</th></tr></thead>
+      <tbody id="leads-table"></tbody></table>
+    </div>
+  </div>
+
+  <!-- Interactions -->
+  <div class="page" id="page-interactions">
+    <div class="page-header">
+      <div><div class="page-title">Interactions</div><div class="page-sub">All client touchpoints</div></div>
+      <button class="btn btn-primary" onclick="openAddInteraction()">+ Log Interaction</button>
+    </div>
+    <div class="card">
+      <table><thead><tr><th>Lead</th><th>Type</th><th>Summary</th><th>Date</th></tr></thead>
+      <tbody id="interactions-table"></tbody></table>
+    </div>
+  </div>
+
+  <!-- Analytics -->
+  <div class="page" id="page-analytics">
+    <div class="page-header">
+      <div><div class="page-title">Analytics</div><div class="page-sub">Pipeline performance overview</div></div>
+    </div>
+    <div class="kpi-row">
+      <div class="kpi"><div class="kpi-val" id="a-total">—</div><div class="kpi-label">Total Leads</div></div>
+      <div class="kpi"><div class="kpi-val" id="a-rate">—</div><div class="kpi-label">Conversion Rate</div></div>
+      <div class="kpi"><div class="kpi-val" id="a-interactions">—</div><div class="kpi-label">Total Interactions</div></div>
+      <div class="kpi"><div class="kpi-val" id="a-active">—</div><div class="kpi-label">Active Leads</div></div>
+    </div>
+    <div class="analytics-grid">
+      <div class="card" style="padding:20px">
+        <h3 style="font-family:var(--font-head);font-size:14px;font-weight:700;margin-bottom:16px">Pipeline Breakdown</h3>
+        <div id="pipeline-bars"></div>
+      </div>
+      <div class="card" style="padding:20px">
+        <h3 style="font-family:var(--font-head);font-size:14px;font-weight:700;margin-bottom:16px">Status Distribution</h3>
+        <div id="status-dist"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Add Lead Modal -->
+<div class="overlay" id="lead-modal">
+  <div class="modal">
+    <h2 id="lead-modal-title">Add New Lead</h2>
+    <input type="hidden" id="edit-lead-id">
+    <div class="form-row">
+      <div class="form-group"><label>Full Name *</label><input id="f-name" placeholder="Rahul Sharma"></div>
+      <div class="form-group"><label>Company *</label><input id="f-company" placeholder="TechCorp India"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Email *</label><input id="f-email" type="email" placeholder="rahul@techcorp.com"></div>
+      <div class="form-group"><label>Phone</label><input id="f-phone" placeholder="9876543210"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Status</label>
+        <select id="f-status">
+          <option>New</option><option>Contacted</option><option>Qualified</option>
+          <option>Proposal</option><option>Closed</option><option>Lost</option>
+        </select>
+      </div>
+    </div>
+    <div class="form-group"><label>Notes</label><textarea id="f-notes" rows="2" placeholder="Any notes..."></textarea></div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('lead-modal')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveLead()">Save Lead</button>
+    </div>
+  </div>
+</div>
+
+<!-- Add Interaction Modal -->
+<div class="overlay" id="interaction-modal">
+  <div class="modal">
+    <h2>Log Interaction</h2>
+    <div class="form-group"><label>Lead *</label>
+      <select id="i-lead"></select>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Type *</label>
+        <select id="i-type"><option>Call</option><option>Email</option><option>Meeting</option><option>Demo</option></select>
+      </div>
+    </div>
+    <div class="form-group"><label>Summary *</label>
+      <textarea id="i-summary" rows="3" placeholder="What happened in this interaction..."></textarea>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('interaction-modal')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveInteraction()">Log It</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+let allLeads = [];
+let allInteractions = [];
+
+// ── Navigation ────────────────────────────────────────────────────────────────
+function showPage(id) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  document.getElementById('page-' + id).classList.add('active');
+  document.querySelectorAll('.nav-item')[['dashboard','leads','interactions','analytics'].indexOf(id)].classList.add('active');
+  if (id === 'dashboard') loadDashboard();
+  if (id === 'leads') loadLeads();
+  if (id === 'interactions') loadInteractions();
+  if (id === 'analytics') loadAnalytics();
+}
+
+// ── Toast ─────────────────────────────────────────────────────────────────────
+function toast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2500);
+}
+
+// ── Modal ─────────────────────────────────────────────────────────────────────
+function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+function openModal(id) { document.getElementById(id).classList.add('open'); }
+
+// ── Fetch Helpers ─────────────────────────────────────────────────────────────
+async function apiFetch(url, opts={}) {
+  const res = await fetch(url, { headers:{'Content-Type':'application/json'}, ...opts });
+  return res.json();
+}
+
+// ── Dashboard ─────────────────────────────────────────────────────────────────
+async function loadDashboard() {
+  const [leads, analytics] = await Promise.all([apiFetch('/api/leads'), apiFetch('/api/analytics')]);
+  allLeads = leads;
+  document.getElementById('k-total').textContent = analytics.total;
+  document.getElementById('k-closed').textContent = analytics.status_counts['Closed'] || 0;
+  document.getElementById('k-rate').textContent = analytics.conversion_rate + '%';
+  document.getElementById('k-interactions').textContent = analytics.interactions;
+
+  const tbody = document.getElementById('dash-leads');
+  tbody.innerHTML = leads.slice(0,5).map(l => `
+    <tr>
+      <td><strong>${l.name}</strong><br><span style="font-size:11px;color:var(--muted)">${l.email}</span></td>
+      <td>${l.company}</td>
+      <td><span class="badge badge-${l.status}">${l.status}</span></td>
+      <td style="font-size:12px;color:var(--muted)">${l.follow_up_date}</td>
+    </tr>`).join('');
+}
+
+// ── Leads ─────────────────────────────────────────────────────────────────────
+async function loadLeads() {
+  allLeads = await apiFetch('/api/leads');
+  renderLeads(allLeads);
+}
+
+function renderLeads(leads) {
+  const tbody = document.getElementById('leads-table');
+  if (!leads.length) { tbody.innerHTML = '<tr><td colspan="6"><div class="empty-state">No leads found</div></td></tr>'; return; }
+  tbody.innerHTML = leads.map(l => `
+    <tr>
+      <td><strong>${l.name}</strong><br><span style="font-size:11px;color:var(--muted)">${l.email}</span></td>
+      <td>${l.company}</td>
+      <td style="font-size:12px">${l.phone}</td>
+      <td><span class="badge badge-${l.status}">${l.status}</span></td>
+      <td style="font-size:12px;color:var(--muted)">${l.follow_up_date}</td>
+      <td>
+        <button class="btn btn-ghost btn-sm" onclick="editLead(${l.id})">Edit</button>
+        <button class="btn btn-danger btn-sm" onclick="deleteLead(${l.id})">Del</button>
+      </td>
+    </tr>`).join('');
+}
+
+function filterLeads() {
+  const q = document.getElementById('lead-search').value.toLowerCase();
+  const s = document.getElementById('status-filter').value;
+  let filtered = allLeads.filter(l =>
+    (l.name.toLowerCase().includes(q) || l.company.toLowerCase().includes(q)) &&
+    (!s || l.status === s)
+  );
+  renderLeads(filtered);
+}
+
+function openAddLead() {
+  document.getElementById('lead-modal-title').textContent = 'Add New Lead';
+  document.getElementById('edit-lead-id').value = '';
+  ['f-name','f-company','f-email','f-phone','f-notes'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('f-status').value = 'New';
+  openModal('lead-modal');
+}
+
+function editLead(id) {
+  const lead = allLeads.find(l => l.id === id);
+  if (!lead) return;
+  document.getElementById('lead-modal-title').textContent = 'Edit Lead';
+  document.getElementById('edit-lead-id').value = id;
+  document.getElementById('f-name').value = lead.name;
+  document.getElementById('f-company').value = lead.company;
+  document.getElementById('f-email').value = lead.email;
+  document.getElementById('f-phone').value = lead.phone;
+  document.getElementById('f-status').value = lead.status;
+  document.getElementById('f-notes').value = lead.notes;
+  openModal('lead-modal');
+}
+
+async function saveLead() {
+  const id = document.getElementById('edit-lead-id').value;
+  const body = {
+    name: document.getElementById('f-name').value,
+    company: document.getElementById('f-company').value,
+    email: document.getElementById('f-email').value,
+    phone: document.getElementById('f-phone').value,
+    status: document.getElementById('f-status').value,
+    notes: document.getElementById('f-notes').value,
+  };
+  if (!body.name || !body.company || !body.email) { toast('⚠️ Name, Company & Email required'); return; }
+  if (id) {
+    await apiFetch(`/api/leads/${id}`, {method:'PUT', body:JSON.stringify(body)});
+    toast('✅ Lead updated!');
+  } else {
+    await apiFetch('/api/leads', {method:'POST', body:JSON.stringify(body)});
+    toast('✅ Lead added!');
+  }
+  closeModal('lead-modal');
+  loadLeads();
+}
+
+async function deleteLead(id) {
+  if (!confirm('Delete this lead?')) return;
+  await apiFetch(`/api/leads/${id}`, {method:'DELETE'});
+  toast('🗑️ Lead deleted');
+  loadLeads();
+}
+
+// ── Interactions ──────────────────────────────────────────────────────────────
+async function loadInteractions() {
+  const [interactions, leads] = await Promise.all([apiFetch('/api/interactions'), apiFetch('/api/leads')]);
+  allInteractions = interactions;
+  allLeads = leads;
+  const leadMap = {};
+  leads.forEach(l => leadMap[l.id] = l.name);
+  const tbody = document.getElementById('interactions-table');
+  if (!interactions.length) { tbody.innerHTML = '<tr><td colspan="4"><div class="empty-state">No interactions yet</div></td></tr>'; return; }
+  const typeColors = {Call:'#60a5fa',Email:'#a78bfa',Meeting:'#34d399',Demo:'#fbbf24'};
+  tbody.innerHTML = interactions.map(i => `
+    <tr>
+      <td><strong>${leadMap[i.lead_id] || 'Unknown'}</strong></td>
+      <td><span class="badge" style="background:${typeColors[i.type]}22;color:${typeColors[i.type]};border:1px solid ${typeColors[i.type]}44">${i.type}</span></td>
+      <td style="font-size:13px">${i.summary}</td>
+      <td style="font-size:12px;color:var(--muted)">${i.date}</td>
+    </tr>`).join('');
+}
+
+async function openAddInteraction() {
+  const leads = await apiFetch('/api/leads');
+  const sel = document.getElementById('i-lead');
+  sel.innerHTML = leads.map(l => `<option value="${l.id}">${l.name} (${l.company})</option>`).join('');
+  document.getElementById('i-summary').value = '';
+  openModal('interaction-modal');
+}
+
+async function saveInteraction() {
+  const body = {
+    lead_id: parseInt(document.getElementById('i-lead').value),
+    type: document.getElementById('i-type').value,
+    summary: document.getElementById('i-summary').value,
+  };
+  if (!body.summary) { toast('⚠️ Summary required'); return; }
+  await apiFetch('/api/interactions', {method:'POST', body:JSON.stringify(body)});
+  toast('✅ Interaction logged!');
+  closeModal('interaction-modal');
+  loadInteractions();
+}
+
+// ── Analytics ─────────────────────────────────────────────────────────────────
+async function loadAnalytics() {
+  const a = await apiFetch('/api/analytics');
+  document.getElementById('a-total').textContent = a.total;
+  document.getElementById('a-rate').textContent = a.conversion_rate + '%';
+  document.getElementById('a-interactions').textContent = a.interactions;
+  const active = (a.status_counts['New']||0) + (a.status_counts['Contacted']||0) + (a.status_counts['Qualified']||0) + (a.status_counts['Proposal']||0);
+  document.getElementById('a-active').textContent = active;
+
+  const colors = {New:'#60a5fa',Contacted:'#a78bfa',Qualified:'#34d399',Proposal:'#fbbf24',Closed:'#4ade80',Lost:'#f87171'};
+  const bars = document.getElementById('pipeline-bars');
+  bars.innerHTML = Object.entries(a.status_counts).map(([status, count]) => `
+    <div class="pipeline-bar">
+      <div class="pipeline-label"><span>${status}</span><span style="color:var(--text);font-weight:600">${count}</span></div>
+      <div class="bar-track"><div class="bar-fill" style="width:${(count/a.total*100)}%;background:${colors[status]||'#60a5fa'}"></div></div>
+    </div>`).join('');
+
+  const dist = document.getElementById('status-dist');
+  dist.innerHTML = Object.entries(a.status_counts).map(([status, count]) => `
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+      <div style="width:10px;height:10px;border-radius:50%;background:${colors[status]||'#60a5fa'};flex-shrink:0"></div>
+      <span style="font-size:13px;flex:1">${status}</span>
+      <span style="font-size:13px;font-weight:600">${count}</span>
+      <span style="font-size:12px;color:var(--muted)">${Math.round(count/a.total*100)}%</span>
+    </div>`).join('');
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+loadDashboard();
+</script>
+</body>
+</html>"""
+
+@app.route("/")
+def index():
+    return HTML
+
+if __name__ == "__main__":
+    print("\n" + "="*50)
+    print("  🚀 CRM Pro - Chirag Singla")
+    print("  Open in browser: http://localhost:5000")
+    print("="*50 + "\n")
+    app.run(debug=True, port=5000)
